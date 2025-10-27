@@ -1,4 +1,4 @@
-"""Core 2D social navigation environment.
+r"""Core 2D social navigation environment.
 
 The environment models a simplified building floor plan populated with static walls
 and moving humans. A disc-shaped robot navigates the space using 2D LiDAR
@@ -30,7 +30,7 @@ Vector = Tuple[float, float]
 
 @dataclass
 class EnvironmentConfig:
-    """Configuration options for :class:`SocialNavigationEnv`.
+    r"""Configuration options for :class:`SocialNavigationEnv`.
 
     Attributes
     ----------
@@ -120,8 +120,14 @@ class SocialNavigationEnv(gym.Env):
         self._build_layout()
         self._create_humans()
 
-        obs_low = np.array([-np.inf, -np.inf, -math.pi, -np.inf, -np.inf] + [0.0] * self.config.lidar_num_rays)
-        obs_high = np.array([np.inf, np.inf, math.pi, np.inf, np.inf] + [self.config.lidar_max_distance] * self.config.lidar_num_rays)
+        obs_low = np.array(
+            [-np.inf, -np.inf, -math.pi, -np.inf, -np.inf] + [0.0] * self.config.lidar_num_rays,
+            dtype=np.float32,
+        )
+        obs_high = np.array(
+            [np.inf, np.inf, math.pi, np.inf, np.inf] + [self.config.lidar_max_distance] * self.config.lidar_num_rays,
+            dtype=np.float32,
+        )
         self.observation_space = spaces.Box(obs_low, obs_high, dtype=np.float32)
         self.action_space = spaces.Box(
             low=np.array([-1.0, -1.0], dtype=np.float32),
@@ -281,6 +287,7 @@ class SocialNavigationEnv(gym.Env):
             [(12.5, 9.0), (16.0, 9.0), (16.0, 10.5), (12.5, 10.5)],
             # Human around the vertical spine intersection.
             [(8.5, 4.5), (8.5, 7.5), (9.5, 7.5), (9.5, 4.5)],
+        ]
         self.walls: List[Tuple[float, float, float, float]] = []
 
         def add_rectangle(x_min: float, y_min: float, x_max: float, y_max: float) -> None:
@@ -526,34 +533,41 @@ class SocialNavigationEnv(gym.Env):
             self._figure, self._axes = plt.subplots(figsize=(8, 5))
         ax = self._axes
         ax.clear()
-        ax.set_xlim(0, 18)
-        ax.set_ylim(0, 12)
-        plt.figure(figsize=(6, 4))
-        ax = plt.gca()
-        ax.set_xlim(0, 14)
-        ax.set_ylim(0, 10)
+
+        # Compute drawing bounds from walls if available.
+        xs = [x for seg in self.walls for x in (seg[0], seg[2])] if self.walls else []
+        ys = [y for seg in self.walls for y in (seg[1], seg[3])] if self.walls else []
+        if xs and ys:
+            minx, maxx = min(xs) - 1.0, max(xs) + 1.0
+            miny, maxy = min(ys) - 1.0, max(ys) + 1.0
+        else:
+            minx, maxx, miny, maxy = 0.0, 14.0, 0.0, 10.0
+
+        ax.set_xlim(minx, maxx)
+        ax.set_ylim(miny, maxy)
         ax.set_aspect("equal")
 
         for wall in self.walls:
             x1, y1, x2, y2 = wall
             ax.plot([x1, x2], [y1, y2], "k-", linewidth=2)
-            ax.plot([x1, x2], [y1, y2], "k-")
-
+            
         for human in self.humans:
             circle = plt.Circle(human.position, human.radius, color="orange", alpha=0.7)
             ax.add_patch(circle)
 
         robot = plt.Circle(self.robot_position, self.config.robot_radius, color="blue", alpha=0.7)
         ax.add_patch(robot)
+
+        # Draw heading arrow (dx, dy) with keyword args only.
+        dx = 0.6 * math.cos(self.robot_heading)
+        dy = 0.6 * math.sin(self.robot_heading)
         ax.arrow(
             self.robot_position[0],
             self.robot_position[1],
-            0.6 * math.cos(self.robot_heading),
-            0.6 * math.sin(self.robot_heading),
+            dx,
+            dy,
             head_width=0.25,
-            0.5 * math.cos(self.robot_heading),
-            0.5 * math.sin(self.robot_heading),
-            head_width=0.2,
+            head_length=0.25,
             color="blue",
         )
 
@@ -668,7 +682,7 @@ def keyboard_control(
                 stdscr.refresh()
             time.sleep(env.config.dt)
 
-    curses.wrapper(control_loop)
+        curses.wrapper(control_loop)
         plt.tight_layout()
         plt.show()
 
