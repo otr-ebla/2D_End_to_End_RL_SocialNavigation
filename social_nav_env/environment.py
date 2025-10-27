@@ -281,6 +281,51 @@ class SocialNavigationEnv(gym.Env):
             [(12.5, 9.0), (16.0, 9.0), (16.0, 10.5), (12.5, 10.5)],
             # Human around the vertical spine intersection.
             [(8.5, 4.5), (8.5, 7.5), (9.5, 7.5), (9.5, 4.5)],
+        self.walls: List[Tuple[float, float, float, float]] = []
+
+        def add_rectangle(x_min: float, y_min: float, x_max: float, y_max: float) -> None:
+            self.walls.extend(
+                [
+                    (x_min, y_min, x_max, y_min),
+                    (x_max, y_min, x_max, y_max),
+                    (x_max, y_max, x_min, y_max),
+                    (x_min, y_max, x_min, y_min),
+                ]
+            )
+
+        # Outer boundaries (a 14m x 10m area).
+        add_rectangle(0.0, 0.0, 14.0, 10.0)
+
+        # Corridors and rooms.
+        # Central corridor along x-axis.
+        add_rectangle(0.0, 4.5, 14.0, 5.5)
+        # Side rooms separated by walls leaving doorways.
+        # Left rooms.
+        add_rectangle(0.0, 0.0, 4.0, 4.5)
+        add_rectangle(0.0, 5.5, 4.0, 10.0)
+        # Right rooms.
+        add_rectangle(10.0, 0.0, 14.0, 4.5)
+        add_rectangle(10.0, 5.5, 14.0, 10.0)
+
+        # Remove wall segments to create doorways in corridor.
+        self.doors: List[Tuple[float, float, float, float]] = [
+            (4.0, 4.5, 4.0, 5.5),
+            (10.0, 4.5, 10.0, 5.5),
+            (7.0, 4.5, 7.0, 5.5),
+            (7.0, 0.0, 7.0, 4.5),
+            (7.0, 5.5, 7.0, 10.0),
+        ]
+        self.walls = [segment for segment in self.walls if segment not in self.doors]
+
+        # Define spawn zones for the robot and the goal.
+        self.robot_spawn_regions = [((1.0, 2.0), (3.0, 3.5)), ((11.0, 6.0), (13.0, 9.0))]
+        self.goal_regions = [((12.0, 1.0), (13.0, 3.0)), ((1.0, 7.0), (2.0, 9.0))]
+
+    def _create_humans(self) -> None:
+        self.human_paths: List[List[Vector]] = [
+            [(5.0, 4.75), (9.0, 4.75), (9.0, 5.25), (5.0, 5.25)],
+            [(2.0, 1.0), (2.0, 3.5), (3.5, 3.5), (3.5, 1.0)],
+            [(11.0, 7.0), (12.5, 7.0), (12.5, 9.0), (11.0, 9.0)],
         ]
 
     # ------------------------------------------------------------------
@@ -483,11 +528,16 @@ class SocialNavigationEnv(gym.Env):
         ax.clear()
         ax.set_xlim(0, 18)
         ax.set_ylim(0, 12)
+        plt.figure(figsize=(6, 4))
+        ax = plt.gca()
+        ax.set_xlim(0, 14)
+        ax.set_ylim(0, 10)
         ax.set_aspect("equal")
 
         for wall in self.walls:
             x1, y1, x2, y2 = wall
             ax.plot([x1, x2], [y1, y2], "k-", linewidth=2)
+            ax.plot([x1, x2], [y1, y2], "k-")
 
         for human in self.humans:
             circle = plt.Circle(human.position, human.radius, color="orange", alpha=0.7)
@@ -501,6 +551,9 @@ class SocialNavigationEnv(gym.Env):
             0.6 * math.cos(self.robot_heading),
             0.6 * math.sin(self.robot_heading),
             head_width=0.25,
+            0.5 * math.cos(self.robot_heading),
+            0.5 * math.sin(self.robot_heading),
+            head_width=0.2,
             color="blue",
         )
 
@@ -616,3 +669,6 @@ def keyboard_control(
             time.sleep(env.config.dt)
 
     curses.wrapper(control_loop)
+        plt.tight_layout()
+        plt.show()
+

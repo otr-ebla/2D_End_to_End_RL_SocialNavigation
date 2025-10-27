@@ -23,3 +23,6 @@ except AttributeError as exc:  # pragma: no cover - defensive safeguard.
     keyboard_control = _missing_keyboard_control
 
 __all__ = ["SocialNavigationEnv", "EnvironmentConfig", "keyboard_control"]
+from .environment import SocialNavigationEnv, EnvironmentConfig
+
+__all__ = ["SocialNavigationEnv", "EnvironmentConfig"]
