@@ -7,6 +7,7 @@ This repository provides a ready-to-use 2D simulation environment that can be
 used as the training ground for reinforcement learning algorithms focused on
 social navigation. The environment features:
 
+codex/create-2d-simulation-environment-for-robot-oh9kml
 * A detailed building floor plan with a cross-shaped corridor spine, wide
   hallways, and individual rooms connected through explicit door openings.
 * A mobile robot modelled as a disc that receives a goal position and 2D LiDAR
@@ -44,6 +45,7 @@ env.render()
 The observation vector concatenates the robot position, heading, goal position
 relative to the robot, and the simulated LiDAR distances. Actions are the
 normalized linear and angular velocity commands applied to the robot.
+codex/create-2d-simulation-environment-for-robot-oh9kml
 
 ## Manual keyboard control
 
@@ -81,3 +83,4 @@ git pull --ff-only origin work
 These commands download the newest commits from the default `work` branch and
 fast-forward your local branch so it matches the current version of the
 environment, including the expanded layout and keyboard teleoperation helper.
+main
