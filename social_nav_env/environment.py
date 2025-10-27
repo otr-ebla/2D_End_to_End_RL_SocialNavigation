@@ -9,7 +9,6 @@ reinforcement learning pipelines.
 from __future__ import annotations
 
 import math
-import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Sequence, Tuple
 
@@ -133,8 +132,6 @@ class SocialNavigationEnv(gym.Env):
         self.robot_heading: float = 0.0
         self.goal_position: np.ndarray = np.zeros(2, dtype=float)
         self.humans: List[HumanAgent] = []
-        self._figure = None
-        self._axes = None
 
     # ------------------------------------------------------------------
     # Environment construction helpers
@@ -144,143 +141,51 @@ class SocialNavigationEnv(gym.Env):
         """Create static walls representing a building floor plan."""
 
         # Walls are represented as (x1, y1, x2, y2) line segments in meters.
-        self._wall_segments: set[Tuple[float, float, float, float]] = set()
-
-        def add_segment(x1: float, y1: float, x2: float, y2: float) -> None:
-            segment = (x1, y1, x2, y2)
-            reverse = (x2, y2, x1, y1)
-            if reverse in self._wall_segments or segment in self._wall_segments:
-                return
-            self._wall_segments.add(segment)
+        self.walls: List[Tuple[float, float, float, float]] = []
 
         def add_rectangle(x_min: float, y_min: float, x_max: float, y_max: float) -> None:
-            add_segment(x_min, y_min, x_max, y_min)
-            add_segment(x_max, y_min, x_max, y_max)
-            add_segment(x_max, y_max, x_min, y_max)
-            add_segment(x_min, y_max, x_min, y_min)
+            self.walls.extend(
+                [
+                    (x_min, y_min, x_max, y_min),
+                    (x_max, y_min, x_max, y_max),
+                    (x_max, y_max, x_min, y_max),
+                    (x_min, y_max, x_min, y_min),
+                ]
+            )
 
-        def add_wall_with_gaps(
-            x1: float,
-            y1: float,
-            x2: float,
-            y2: float,
-            gaps: Sequence[Tuple[float, float]] | None = None,
-        ) -> None:
-            """Add an axis-aligned wall optionally leaving door openings."""
+        # Outer boundaries (a 14m x 10m area).
+        add_rectangle(0.0, 0.0, 14.0, 10.0)
 
-            gaps = sorted(gaps or [])
-            if y1 == y2:
-                if x2 < x1:
-                    x1, x2 = x2, x1
-                # Horizontal wall.
-                current = x1
-                for gap_start, gap_end in gaps:
-                    if gap_start > current:
-                        add_segment(current, y1, gap_start, y1)
-                    current = max(current, gap_end)
-                if current < x2:
-                    add_segment(current, y1, x2, y1)
-            elif x1 == x2:
-                if y2 < y1:
-                    y1, y2 = y2, y1
-                # Vertical wall.
-                current = y1
-                for gap_start, gap_end in gaps:
-                    if gap_start > current:
-                        add_segment(x1, current, x1, gap_start)
-                    current = max(current, gap_end)
-                if current < y2:
-                    add_segment(x1, current, x1, y2)
-            else:
-                raise ValueError("Walls must be axis-aligned")
+        # Corridors and rooms.
+        # Central corridor along x-axis.
+        add_rectangle(0.0, 4.5, 14.0, 5.5)
+        # Side rooms separated by walls leaving doorways.
+        # Left rooms.
+        add_rectangle(0.0, 0.0, 4.0, 4.5)
+        add_rectangle(0.0, 5.5, 4.0, 10.0)
+        # Right rooms.
+        add_rectangle(10.0, 0.0, 14.0, 4.5)
+        add_rectangle(10.0, 5.5, 14.0, 10.0)
 
-        def add_room_with_door(
-            x_min: float,
-            y_min: float,
-            x_max: float,
-            y_max: float,
-            door_side: str,
-            door_center: float,
-            door_width: float,
-        ) -> None:
-            """Create a room leaving an opening on the chosen wall."""
-
-            half = door_width / 2.0
-            if door_side == "south":
-                add_wall_with_gaps(x_min, y_min, x_max, y_min, [(door_center - half, door_center + half)])
-                add_segment(x_max, y_min, x_max, y_max)
-                add_segment(x_max, y_max, x_min, y_max)
-                add_segment(x_min, y_max, x_min, y_min)
-            elif door_side == "north":
-                add_segment(x_min, y_min, x_max, y_min)
-                add_segment(x_max, y_min, x_max, y_max)
-                add_wall_with_gaps(x_min, y_max, x_max, y_max, [(door_center - half, door_center + half)])
-                add_segment(x_min, y_max, x_min, y_min)
-            elif door_side == "east":
-                add_segment(x_min, y_min, x_max, y_min)
-                add_wall_with_gaps(x_max, y_min, x_max, y_max, [(door_center - half, door_center + half)])
-                add_segment(x_max, y_max, x_min, y_max)
-                add_segment(x_min, y_max, x_min, y_min)
-            elif door_side == "west":
-                add_segment(x_min, y_min, x_max, y_min)
-                add_segment(x_max, y_min, x_max, y_max)
-                add_segment(x_max, y_max, x_min, y_max)
-                add_wall_with_gaps(x_min, y_min, x_min, y_max, [(door_center - half, door_center + half)])
-            else:
-                raise ValueError(f"Unsupported door side '{door_side}'")
-
-        # Outer boundaries (18m x 12m area).
-        add_rectangle(0.0, 0.0, 18.0, 12.0)
-
-        # Horizontal main corridor (y = 4 .. 8) with doors to side rooms.
-        add_wall_with_gaps(0.0, 4.0, 18.0, 4.0, gaps=[(3.5, 4.5), (8.5, 9.5), (13.5, 14.5)])
-        add_wall_with_gaps(0.0, 8.0, 18.0, 8.0, gaps=[(2.0, 3.0), (7.0, 8.0), (12.0, 13.0), (16.0, 17.0)])
-
-        # Vertical spine corridor (x = 7 .. 11) connecting north and south areas.
-        add_wall_with_gaps(7.0, 0.0, 7.0, 12.0, gaps=[(1.5, 3.0), (5.0, 7.0), (9.0, 10.5)])
-        add_wall_with_gaps(11.0, 0.0, 11.0, 12.0, gaps=[(2.5, 4.0), (6.0, 8.0), (10.0, 11.0)])
-
-        # Suites in the south wing.
-        add_room_with_door(0.5, 0.5, 3.5, 3.5, "north", 2.0, 1.2)
-        add_room_with_door(3.8, 0.5, 6.5, 3.5, "north", 5.2, 1.0)
-        add_room_with_door(11.5, 0.5, 14.5, 3.5, "north", 13.0, 1.5)
-        add_room_with_door(14.8, 0.5, 17.5, 3.5, "north", 16.0, 1.0)
-
-        # Meeting rooms along the spine corridor.
-        add_room_with_door(7.2, 4.3, 10.8, 5.8, "west", 5.0, 1.0)
-        add_room_with_door(7.2, 6.2, 10.8, 7.7, "east", 6.8, 1.2)
-
-        # Offices in the north wing.
-        add_room_with_door(0.5, 8.5, 4.0, 11.5, "south", 2.5, 1.4)
-        add_room_with_door(4.3, 8.5, 6.8, 11.5, "south", 5.5, 1.0)
-        add_room_with_door(11.5, 8.5, 14.5, 11.5, "south", 13.0, 1.2)
-        add_room_with_door(14.8, 8.5, 17.5, 11.5, "south", 16.2, 1.2)
-
-        # Convert to list for downstream logic.
-        self.walls = list(self._wall_segments)
+        # Remove wall segments to create doorways in corridor.
+        self.doors: List[Tuple[float, float, float, float]] = [
+            (4.0, 4.5, 4.0, 5.5),
+            (10.0, 4.5, 10.0, 5.5),
+            (7.0, 4.5, 7.0, 5.5),
+            (7.0, 0.0, 7.0, 4.5),
+            (7.0, 5.5, 7.0, 10.0),
+        ]
+        self.walls = [segment for segment in self.walls if segment not in self.doors]
 
         # Define spawn zones for the robot and the goal.
-        self.robot_spawn_regions = [
-            ((8.0, 5.0), (10.0, 7.0)),  # central crossroads
-            ((1.0, 1.0), (3.0, 3.0)),  # south-west office
-            ((15.0, 9.0), (17.0, 11.0)),  # north-east office
-        ]
-        self.goal_regions = [
-            ((1.0, 9.0), (3.5, 10.5)),
-            ((12.0, 1.0), (16.5, 2.5)),
-            ((8.0, 5.0), (10.0, 7.0)),
-        ]
+        self.robot_spawn_regions = [((1.0, 2.0), (3.0, 3.5)), ((11.0, 6.0), (13.0, 9.0))]
+        self.goal_regions = [((12.0, 1.0), (13.0, 3.0)), ((1.0, 7.0), (2.0, 9.0))]
 
     def _create_humans(self) -> None:
         self.human_paths: List[List[Vector]] = [
-            # Humans patrolling the main east-west corridor.
-            [(4.5, 5.5), (13.5, 5.5), (13.5, 6.5), (4.5, 6.5)],
-            # Human moving between the south offices.
-            [(2.5, 1.0), (5.5, 1.0), (5.5, 3.0), (2.5, 3.0)],
-            # Human traversing the north wing.
-            [(12.5, 9.0), (16.0, 9.0), (16.0, 10.5), (12.5, 10.5)],
-            # Human around the vertical spine intersection.
-            [(8.5, 4.5), (8.5, 7.5), (9.5, 7.5), (9.5, 4.5)],
+            [(5.0, 4.75), (9.0, 4.75), (9.0, 5.25), (5.0, 5.25)],
+            [(2.0, 1.0), (2.0, 3.5), (3.5, 3.5), (3.5, 1.0)],
+            [(11.0, 7.0), (12.5, 7.0), (12.5, 9.0), (11.0, 9.0)],
         ]
 
     # ------------------------------------------------------------------
@@ -476,18 +381,15 @@ class SocialNavigationEnv(gym.Env):
                 "matplotlib is required for rendering. Install it with 'pip install matplotlib'."
             ) from exc
 
-        if self._figure is None or self._axes is None:
-            plt.ion()
-            self._figure, self._axes = plt.subplots(figsize=(8, 5))
-        ax = self._axes
-        ax.clear()
-        ax.set_xlim(0, 18)
-        ax.set_ylim(0, 12)
+        plt.figure(figsize=(6, 4))
+        ax = plt.gca()
+        ax.set_xlim(0, 14)
+        ax.set_ylim(0, 10)
         ax.set_aspect("equal")
 
         for wall in self.walls:
             x1, y1, x2, y2 = wall
-            ax.plot([x1, x2], [y1, y2], "k-", linewidth=2)
+            ax.plot([x1, x2], [y1, y2], "k-")
 
         for human in self.humans:
             circle = plt.Circle(human.position, human.radius, color="orange", alpha=0.7)
@@ -498,9 +400,9 @@ class SocialNavigationEnv(gym.Env):
         ax.arrow(
             self.robot_position[0],
             self.robot_position[1],
-            0.6 * math.cos(self.robot_heading),
-            0.6 * math.sin(self.robot_heading),
-            head_width=0.25,
+            0.5 * math.cos(self.robot_heading),
+            0.5 * math.sin(self.robot_heading),
+            head_width=0.2,
             color="blue",
         )
 
@@ -510,109 +412,6 @@ class SocialNavigationEnv(gym.Env):
         ax.set_title("2D Social Navigation")
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
-        ax.grid(True, which="both", linestyle="--", linewidth=0.3)
-        self._figure.tight_layout()
-        self._figure.canvas.draw()
-        self._figure.canvas.flush_events()
-        plt.show(block=False)
+        plt.tight_layout()
+        plt.show()
 
-
-def keyboard_control(
-    env: SocialNavigationEnv,
-    *,
-    linear_step: float = 0.2,
-    angular_step: float = 0.2,
-    max_steps: int | None = None,
-) -> None:
-    """Interactively drive the robot using arrow keys.
-
-    Parameters
-    ----------
-    env:
-        Instance of :class:`SocialNavigationEnv` to control. The environment is
-        reset at the beginning of the session and whenever the user presses ``r``.
-    linear_step:
-        Increment applied to the normalized forward command each time the up or
-        down arrow is pressed. The resulting command is clamped to ``[-1, 1]``.
-    angular_step:
-        Increment applied to the normalized angular command each time the left or
-        right arrow is pressed. The resulting command is clamped to ``[-1, 1]``.
-    max_steps:
-        Optional cap on the number of simulation steps per episode. When reached,
-        the episode ends and the user can restart or quit.
-    """
-
-    if not isinstance(env, SocialNavigationEnv):
-        raise TypeError("keyboard_control expects a SocialNavigationEnv instance")
-
-    import curses
-
-    def clamp(value: float) -> float:
-        return float(max(-1.0, min(1.0, value)))
-
-    def control_loop(stdscr: "curses._CursesWindow") -> None:  # type: ignore[name-defined]
-        curses.curs_set(0)
-        stdscr.nodelay(True)
-        linear_cmd = 0.0
-        angular_cmd = 0.0
-        steps = 0
-        env.reset()
-        env.render()
-        episode_finished = False
-
-        while True:
-            key = stdscr.getch()
-            while key != -1:
-                if key == curses.KEY_UP:
-                    linear_cmd = clamp(linear_cmd + linear_step)
-                elif key == curses.KEY_DOWN:
-                    linear_cmd = clamp(linear_cmd - linear_step)
-                elif key == curses.KEY_LEFT:
-                    angular_cmd = clamp(angular_cmd + angular_step)
-                elif key == curses.KEY_RIGHT:
-                    angular_cmd = clamp(angular_cmd - angular_step)
-                elif key in (ord(" "),):
-                    linear_cmd = 0.0
-                    angular_cmd = 0.0
-                elif key in (ord("r"), ord("R")):
-                    env.reset()
-                    env.render()
-                    linear_cmd = 0.0
-                    angular_cmd = 0.0
-                    steps = 0
-                    episode_finished = False
-                elif key in (ord("q"), ord("Q")):
-                    return
-                key = stdscr.getch()
-
-            stdscr.erase()
-            stdscr.addstr(0, 0, "Arrow keys adjust linear/angular commands (space to stop, r to reset, q to quit)")
-            stdscr.addstr(1, 0, f"Linear command: {linear_cmd:+.2f}    Angular command: {angular_cmd:+.2f}")
-            stdscr.addstr(2, 0, f"Steps: {steps}")
-            stdscr.refresh()
-
-            if episode_finished:
-                stdscr.addstr(3, 0, "Episode finished. Press 'r' to reset or 'q' to quit.")
-                stdscr.refresh()
-                time.sleep(0.1)
-                continue
-
-            action = np.array([linear_cmd, angular_cmd], dtype=np.float32)
-            _, reward, terminated, truncated, _ = env.step(action)
-            env.render()
-            steps += 1
-
-            stdscr.addstr(3, 0, f"Last reward: {reward:+.3f}")
-            stdscr.refresh()
-
-            if terminated or truncated:
-                episode_finished = True
-            elif max_steps is not None and steps >= max_steps:
-                episode_finished = True
-
-            if episode_finished:
-                stdscr.addstr(4, 0, "Episode finished. Press 'r' to reset or 'q' to quit.")
-                stdscr.refresh()
-            time.sleep(env.config.dt)
-
-    curses.wrapper(control_loop)
