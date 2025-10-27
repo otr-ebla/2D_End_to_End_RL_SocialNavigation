@@ -83,5 +83,4 @@ git pull --ff-only origin work
 These commands download the newest commits from the default `work` branch and
 fast-forward your local branch so it matches the current version of the
 environment, including the expanded layout and keyboard teleoperation helper.
-=======
 main
